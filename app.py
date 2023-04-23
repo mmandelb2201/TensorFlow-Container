@@ -8,6 +8,8 @@ import tensorflow_hub as hub
 from tensorflow import keras
 from keras.models import load_model
 
+RESPONSE_BUCKET_NAME = os.environ['RESPONSE_BUCKET']
+
 s3 = boto3.resource('s3')
 
 def lambda_handler(event, context):
@@ -17,9 +19,10 @@ def lambda_handler(event, context):
 
   request_dict = json.loads(response['Body'].read().decode())
     
-  reqs = request_dict['data']
+  predictions = request_dict['predictions']
+  request_id = request_dict['requestId']
     
-  keys = [pd.DataFrame(req, columns=['key']) for req in reqs]
+  keys = [pd.DataFrame(predictions[i]['req'], columns=['key']) for i in range(len(predictions)) if predictions[i]['prediction'] == 1.0]
 
   keys = map(split_word, keys)
 
@@ -35,7 +38,7 @@ def lambda_handler(event, context):
   for key in embedded_keys:
     predictions.append(model.predict(key))
 
-  
+  s3.put_object(Bucket=RESPONSE_BUCKET_NAME, Key='report-mc-response-{}.json'.format(request_id), Body=json.dumps(predictions))
 
 
 
