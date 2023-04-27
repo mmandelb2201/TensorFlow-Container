@@ -1,6 +1,7 @@
 import json
 import boto3
 import pandas as pd
+import numpy as np
 
 import tensorflow as tf
 import tensorflow_hub as hub
@@ -19,17 +20,30 @@ def lambda_handler(event, context):
 
   request_dict = json.loads(response['Body'].read().decode())
     
-  predictions = request_dict['predictions']
+  data = request_dict['data']
   request_id = request_dict['requestId']
     
-  kv = [pd.DataFrame(predictions[i]['req'], columns=['key', 'value']) for i in range(len(predictions)) if predictions[i]['prediction'] == 1.0]
+  total_request_numpy = []
 
-  keys = []
-  for r in kv:
-      k = r['key'].tolist()
-      for key in k:
-          keys.append(key)
+  for i in range(len(data)):
+      key_column = []
+      value_coulmn = []
+      for j in range(len(data[i]['req'])):
+        key_column.append(data[i]['req'][j][0])
+        value_coulmn.append(data[i]['req'][j][1])
+      url_column = np.full((len(key_column), 1), data[i]['url'])
+      timestamp_column = np.full((len(key_column), 1), data[i]['timeStamp'])
+      request_numpy = np.column_stack((key_column, value_coulmn, url_column, timestamp_column))
+      total_request_numpy.append(request_numpy)
 
+  total = []
+  for req in total_request_numpy:
+      for row in req:
+          total.append(row)
+
+  df = pd.DataFrame(total, columns=['key', 'value', 'url', 'timestamp'])
+
+  keys = df['key'].tolist()
 
   amt = len(keys)
 
@@ -54,9 +68,21 @@ def lambda_handler(event, context):
   for p in predictions:
      classes.append(get_class(p))
 
-  print(classes)
+  kv_dict = []
+  for index, row in df.iterrows():
+      kv_dict.append(
+          {
+              'key' : row['key'],
+              'value' : row['value'],
+              'prediction' : classes[index],
+              'url' : row['url'],
+              'timestamp' : row['timestamp']
+          }
+      )
 
-  s3.put_object(Bucket=RESPONSE_BUCKET_NAME, Key='report-mc-response-{}.json'.format(request_id), Body=json.dumps(predictions))
+  print(kv_dict[0])
+
+  s3.put_object(Bucket=RESPONSE_BUCKET_NAME, Key='report-mc-response-{}.json'.format(request_id), Body=json.dumps(kv_dict))
 
 def get_class(prediction):
   i = 0
