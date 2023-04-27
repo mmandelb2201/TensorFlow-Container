@@ -1,18 +1,20 @@
 import json
 import boto3
-import numpy as np
 import pandas as pd
 
 import tensorflow as tf
 import tensorflow_hub as hub
-from tensorflow import keras
 from keras.models import load_model
+
+import os
 
 RESPONSE_BUCKET_NAME = os.environ['RESPONSE_BUCKET']
 
-s3 = boto3.resource('s3')
+s3 = boto3.client('s3')
 
 def lambda_handler(event, context):
+  print("HERE!")
+
   deserialized_event = json.loads(json.dumps(event))
 
   response = s3.get_object(Bucket=deserialized_event['Records'][0]['s3']['bucket']['name'], Key=deserialized_event['Records'][0]['s3']['object']['key'])
@@ -22,9 +24,21 @@ def lambda_handler(event, context):
   predictions = request_dict['predictions']
   request_id = request_dict['requestId']
     
-  keys = [pd.DataFrame(predictions[i]['req'], columns=['key']) for i in range(len(predictions)) if predictions[i]['prediction'] == 1.0]
+  kv = [pd.DataFrame(predictions[i]['req'], columns=['key', 'value']) for i in range(len(predictions)) if predictions[i]['prediction'] == 1.0]
+
+  keys = []
+  for r in kv:
+      k = r['key'].tolist()
+      for key in k:
+          keys.append(key)
+
+
+  amt = len(keys)
+
+  print(f"There are {amt} keys")
 
   keys = map(split_word, keys)
+  keys = list(keys)
 
   #load and embed using USE
   module = hub.load("https://tfhub.dev/google/universal-sentence-encoder/4")
@@ -32,16 +46,15 @@ def lambda_handler(event, context):
   embedded_keys = module(keys)
 
   #load multiclassifier
-  model = load_model('./model/privacy_text_classifier.h5')
+  model = load_model('./privacy_text_classifier.h5')
 
-  predictions = []
-  for key in embedded_keys:
-    predictions.append(model.predict(key))
+  predictions = model.predict(embedded_keys)
+
+  print(f"there are {len(predictions)} predictions")
+
+  print(predictions[0])
 
   s3.put_object(Bucket=RESPONSE_BUCKET_NAME, Key='report-mc-response-{}.json'.format(request_id), Body=json.dumps(predictions))
-
-
-
 
 def split_word(word):
   s = word.replace(".", " ").replace("-", " ")
