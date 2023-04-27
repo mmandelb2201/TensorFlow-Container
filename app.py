@@ -13,8 +13,6 @@ RESPONSE_BUCKET_NAME = os.environ['RESPONSE_BUCKET']
 s3 = boto3.client('s3')
 
 def lambda_handler(event, context):
-  print("HERE!")
-
   deserialized_event = json.loads(json.dumps(event))
 
   response = s3.get_object(Bucket=deserialized_event['Records'][0]['s3']['bucket']['name'], Key=deserialized_event['Records'][0]['s3']['object']['key'])
@@ -52,9 +50,24 @@ def lambda_handler(event, context):
 
   print(f"there are {len(predictions)} predictions")
 
-  print(predictions[0])
+  classes = []
+  for p in predictions:
+     classes.append(get_class(p))
+
+  print(classes)
 
   s3.put_object(Bucket=RESPONSE_BUCKET_NAME, Key='report-mc-response-{}.json'.format(request_id), Body=json.dumps(predictions))
+
+def get_class(prediction):
+  i = 0
+  c = 0
+  m = 0
+  for pred in prediction:
+    if pred > m:
+        m = pred
+        c = i
+    i += 1
+  return c
 
 def split_word(word):
   s = word.replace(".", " ").replace("-", " ")
